@@ -1,65 +1,403 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useState, useCallback, useRef } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { parseLedgerJSON, parseSettlementCSV, TradeRecord } from "@/lib/parse";
+import { reconcile, ReconcileResult } from "@/lib/reconcile";
+
+// ---------------------------------------------------------------------------
+// Input Screen
+// ---------------------------------------------------------------------------
+
+function InputScreen({
+  onReconcile,
+}: {
+  onReconcile: (result: ReconcileResult) => void;
+}) {
+  const [ledgerRaw, setLedgerRaw] = useState("");
+  const [settlementRaw, setSettlementRaw] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const ledgerFileRef = useRef<HTMLInputElement>(null);
+  const settlementFileRef = useRef<HTMLInputElement>(null);
+
+  const handleFile = useCallback(
+    (
+      setter: (v: string) => void,
+      accept: string
+    ) =>
+      (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => setter(reader.result as string);
+        reader.readAsText(file);
+      },
+    []
+  );
+
+  const handleReconcile = () => {
+    setError(null);
+    try {
+      const ledger = parseLedgerJSON(ledgerRaw);
+      const settlement = parseSettlementCSV(settlementRaw);
+      const result = reconcile(ledger, settlement);
+      onReconcile(result);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const canReconcile = ledgerRaw.trim().length > 0 && settlementRaw.trim().length > 0;
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <div className="flex flex-col gap-8 w-full max-w-6xl mx-auto">
+      <div className="text-center space-y-2">
+        <h1 className="text-2xl font-semibold tracking-tight">Trade Reconciliation</h1>
+        <p className="text-muted-foreground text-sm">
+          Upload or paste your Internal Ledger (JSON) and Bank Settlement (CSV),
+          then click Reconcile.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Internal Ledger */}
+        <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
+          <CardHeader>
+            <CardTitle className="text-lg font-medium tracking-tight">Internal Ledger</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => ledgerFileRef.current?.click()}
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+              Upload JSON file
+            </Button>
+            <input
+              ref={ledgerFileRef}
+              type="file"
+              accept=".json,application/json"
+              className="hidden"
+              onChange={handleFile(setLedgerRaw, ".json")}
+            />
+            <div className="text-xs text-muted-foreground text-center">or paste below</div>
+            <Textarea
+              placeholder='[{"trade_id": "T001", "amount": 100, ...}]'
+              className="min-h-50 font-mono text-xs"
+              value={ledgerRaw}
+              onChange={(e) => setLedgerRaw(e.target.value)}
+            />
+          </CardContent>
+        </Card>
+
+        {/* Bank Settlement */}
+        <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
+          <CardHeader>
+            <CardTitle className="text-lg font-medium tracking-tight">Bank Settlement</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => settlementFileRef.current?.click()}
             >
-              Learning
-            </a>{" "}
-            center.
+              Upload CSV file
+            </Button>
+            <input
+              ref={settlementFileRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={handleFile(setSettlementRaw, ".csv")}
+            />
+            <div className="text-xs text-muted-foreground text-center">or paste below</div>
+            <Textarea
+              placeholder="trade_id,amount,status&#10;T001,100,settled"
+              className="min-h-50 font-mono text-xs"
+              value={settlementRaw}
+              onChange={(e) => setSettlementRaw(e.target.value)}
+            />
+          </CardContent>
+        </Card>
+      </div>
+
+      {error && (
+        <div className="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
+          {error}
+        </div>
+      )}
+
+      <Button
+        size="lg"
+        className="mx-auto px-12 rounded-full"
+        disabled={!canReconcile}
+        onClick={handleReconcile}
+      >
+        Reconcile
+      </Button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Results Screen
+// ---------------------------------------------------------------------------
+
+function formatFields(record: TradeRecord): string {
+  return Object.entries(record)
+    .filter(([k]) => k !== "trade_id")
+    .map(([k, v]) => `${k}: ${v}`)
+    .join(", ");
+}
+
+function buildCsv(rows: { tradeId: string; ledger: TradeRecord | null; settlement: TradeRecord | null; status: string }[]): string {
+  const lines = ["trade_id,status,ledger_data,settlement_data"];
+  for (const row of rows) {
+    const ledgerStr = row.ledger ? formatFields(row.ledger) : "";
+    const settlementStr = row.settlement ? formatFields(row.settlement) : "";
+    lines.push(
+      `${row.tradeId},${row.status},"${ledgerStr.replace(/"/g, '""')}","${settlementStr.replace(/"/g, '""')}"`
+    );
+  }
+  return lines.join("\n");
+}
+
+function ResultsScreen({
+  result,
+  onReset,
+}: {
+  result: ReconcileResult;
+  onReset: () => void;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const discrepancyCount =
+    result.onlyInLedger.length + result.onlyInSettlement.length;
+
+  type Row = {
+    tradeId: string;
+    ledger: TradeRecord | null;
+    settlement: TradeRecord | null;
+    status: "missing_settlement" | "missing_ledger" | "matched";
+  };
+
+  const rows: Row[] = [];
+
+  for (const entry of result.onlyInLedger) {
+    rows.push({
+      tradeId: String(entry.trade_id),
+      ledger: entry,
+      settlement: null,
+      status: "missing_settlement",
+    });
+  }
+
+  for (const entry of result.onlyInSettlement) {
+    rows.push({
+      tradeId: String(entry.trade_id),
+      ledger: null,
+      settlement: entry,
+      status: "missing_ledger",
+    });
+  }
+
+  if (showAll) {
+    for (const { ledger, settlement } of result.matched) {
+      rows.push({
+        tradeId: String(ledger.trade_id),
+        ledger,
+        settlement,
+        status: "matched",
+      });
+    }
+  }
+
+  rows.sort((a, b) => a.tradeId.localeCompare(b.tradeId));
+
+  return (
+    <div className="flex flex-col gap-6 w-full max-w-6xl mx-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Reconciliation Results</h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            {discrepancyCount === 0
+              ? "All trades matched!"
+              : `${discrepancyCount} discrepanc${discrepancyCount === 1 ? "y" : "ies"} found`}
+            {" \u00B7 "}
+            {result.matched.length} matched
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Switch
+              id="show-all"
+              checked={showAll}
+              onCheckedChange={setShowAll}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+            <label htmlFor="show-all" className="text-sm cursor-pointer">
+              Show all entries
+            </label>
+          </div>
+          <Button
+            variant="outline"
+            onClick={() => {
+              const csv = buildCsv(rows);
+              navigator.clipboard.writeText(csv).then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              });
+            }}
           >
-            Documentation
-          </a>
+            {copied ? "Copied!" : "Copy"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              const csv = buildCsv(rows);
+              const blob = new Blob([csv], { type: "text/csv" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = "reconciliation.csv";
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+          >
+            Download CSV
+          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger render={<Button variant="outline" />}>
+              Reset
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Reset reconciliation?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will clear all data and return to the input screen.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={onReset}>Reset</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
-      </main>
+      </div>
+
+      {/* Summary badges */}
+      <div className="flex gap-3 flex-wrap">
+        <Badge variant="destructive">
+          Only in Ledger: {result.onlyInLedger.length}
+        </Badge>
+        <Badge variant="destructive">
+          Only in Settlement: {result.onlyInSettlement.length}
+        </Badge>
+        <Badge variant="secondary">Matched: {result.matched.length}</Badge>
+      </div>
+
+      {/* Results table */}
+      <div className="rounded-lg border border-border/50 overflow-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-35">Trade ID</TableHead>
+              <TableHead>Internal Ledger</TableHead>
+              <TableHead>Bank Settlement</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={3} className="text-center text-muted-foreground py-8">
+                  No discrepancies found. Toggle &ldquo;Show all entries&rdquo; to
+                  see matched trades.
+                </TableCell>
+              </TableRow>
+            ) : (
+              rows.map((row) => (
+                <TableRow
+                  key={row.tradeId}
+                  className={
+                    row.status === "matched"
+                      ? ""
+                      : "bg-destructive/15"
+                  }
+                >
+                  <TableCell className="font-mono font-medium">
+                    {row.tradeId}
+                  </TableCell>
+                  <TableCell>
+                    {row.ledger ? (
+                      <span className="text-xs font-mono">
+                        {formatFields(row.ledger)}
+                      </span>
+                    ) : (
+                      <Badge variant="destructive" className="text-xs">
+                        Missing
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {row.settlement ? (
+                      <span className="text-xs font-mono">
+                        {formatFields(row.settlement)}
+                      </span>
+                    ) : (
+                      <Badge variant="destructive" className="text-xs">
+                        Missing
+                      </Badge>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+
+export default function Home() {
+  const [result, setResult] = useState<ReconcileResult | null>(null);
+
+  return (
+    <div className="min-h-screen py-12 px-6">
+      {result ? (
+        <ResultsScreen result={result} onReset={() => setResult(null)} />
+      ) : (
+        <InputScreen onReconcile={setResult} />
+      )}
     </div>
   );
 }
