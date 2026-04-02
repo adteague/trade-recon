@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,6 +25,8 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import { parseLedgerJSON, parseSettlementCSV, TradeRecord } from "@/lib/parse";
 import { reconcile, ReconcileResult } from "@/lib/reconcile";
 
@@ -58,6 +60,93 @@ function InputScreen({
     []
   );
 
+  // Drag-and-drop
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragMime, setDragMime] = useState<string | null>(null);
+  const dragCounterRef = useRef(0);
+
+  const dragFileType: "json" | "csv" | "unknown" =
+    dragMime === "application/json"
+      ? "json"
+      : dragMime === "text/csv" || dragMime === "text/comma-separated-values"
+        ? "csv"
+        : "unknown";
+
+  useEffect(() => {
+    const onDragEnter = (e: DragEvent) => {
+      e.preventDefault();
+      dragCounterRef.current++;
+      if (dragCounterRef.current === 1) {
+        setIsDragging(true);
+        const item = e.dataTransfer?.items?.[0];
+        setDragMime(item?.type || null);
+      }
+    };
+    const onDragLeave = (e: DragEvent) => {
+      e.preventDefault();
+      dragCounterRef.current--;
+      if (dragCounterRef.current === 0) {
+        setIsDragging(false);
+        setDragMime(null);
+      }
+    };
+    const onDragOver = (e: DragEvent) => {
+      e.preventDefault();
+    };
+    const onDrop = (e: DragEvent) => {
+      e.preventDefault();
+      dragCounterRef.current = 0;
+      setIsDragging(false);
+      setDragMime(null);
+    };
+
+    window.addEventListener("dragenter", onDragEnter);
+    window.addEventListener("dragleave", onDragLeave);
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragenter", onDragEnter);
+      window.removeEventListener("dragleave", onDragLeave);
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, []);
+
+  const handleZoneDrop = useCallback(
+    (setter: (v: string) => void, zone: "json" | "csv") =>
+      (e: React.DragEvent) => {
+        e.preventDefault();
+        const file = e.dataTransfer.files?.[0];
+        if (!file) return;
+
+        // Check MIME type — reject mismatches
+        const mime = file.type;
+        const isJson = mime === "application/json" || file.name.endsWith(".json");
+        const isCsv =
+          mime === "text/csv" ||
+          mime === "text/comma-separated-values" ||
+          file.name.endsWith(".csv");
+
+        if (zone === "json" && !isJson && isCsv) {
+          toast.error("Wrong file type", {
+            description: "This zone accepts .json files — drop your .csv on the other card.",
+          });
+          return;
+        }
+        if (zone === "csv" && !isCsv && isJson) {
+          toast.error("Wrong file type", {
+            description: "This zone accepts .csv files — drop your .json on the other card.",
+          });
+          return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = () => setter(reader.result as string);
+        reader.readAsText(file);
+      },
+    []
+  );
+
   const handleReconcile = () => {
     setError(null);
     try {
@@ -84,18 +173,11 @@ function InputScreen({
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Internal Ledger */}
-        <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
+        <Card className="border-border/50 bg-card/80 backdrop-blur-sm transition-colors">
           <CardHeader>
             <CardTitle className="text-lg font-medium tracking-tight">Internal Ledger</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={() => ledgerFileRef.current?.click()}
-            >
-              Upload JSON file
-            </Button>
             <input
               ref={ledgerFileRef}
               type="file"
@@ -103,29 +185,65 @@ function InputScreen({
               className="hidden"
               onChange={handleFile(setLedgerRaw, ".json")}
             />
-            <div className="text-xs text-muted-foreground text-center">or paste below</div>
-            <Textarea
-              placeholder='[{"trade_id": "T001", "amount": 100, ...}]'
-              className="min-h-50 font-mono text-xs"
-              value={ledgerRaw}
-              onChange={(e) => setLedgerRaw(e.target.value)}
-            />
+            {isDragging ? (
+              <div
+                className={cn(
+                  "flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed min-h-48 transition-colors",
+                  dragFileType !== "csv"
+                    ? "border-primary/60 bg-primary/5"
+                    : "border-destructive/60 bg-destructive/5"
+                )}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={handleZoneDrop(setLedgerRaw, "json")}
+              >
+                <span
+                  className={cn(
+                    "text-3xl font-bold",
+                    dragFileType !== "csv" ? "text-primary" : "text-destructive"
+                  )}
+                >
+                  .JSON
+                </span>
+                <span
+                  className={cn(
+                    "text-sm",
+                    dragFileType !== "csv"
+                      ? "text-primary/70"
+                      : "text-destructive/70"
+                  )}
+                >
+                  {dragFileType === "csv"
+                    ? "Expects .json file"
+                    : "Drop file here"}
+                </span>
+              </div>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => ledgerFileRef.current?.click()}
+                >
+                  Upload JSON file
+                </Button>
+                <div className="text-xs text-muted-foreground text-center">or paste below</div>
+                <Textarea
+                  placeholder='[{"trade_id": "T001", "amount": 100, ...}]'
+                  className="min-h-28 max-h-80 font-mono text-xs"
+                  value={ledgerRaw}
+                  onChange={(e) => setLedgerRaw(e.target.value)}
+                />
+              </>
+            )}
           </CardContent>
         </Card>
 
         {/* Bank Settlement */}
-        <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
+        <Card className="border-border/50 bg-card/80 backdrop-blur-sm transition-colors">
           <CardHeader>
             <CardTitle className="text-lg font-medium tracking-tight">Bank Settlement</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={() => settlementFileRef.current?.click()}
-            >
-              Upload CSV file
-            </Button>
             <input
               ref={settlementFileRef}
               type="file"
@@ -133,13 +251,56 @@ function InputScreen({
               className="hidden"
               onChange={handleFile(setSettlementRaw, ".csv")}
             />
-            <div className="text-xs text-muted-foreground text-center">or paste below</div>
-            <Textarea
-              placeholder="trade_id,amount,status&#10;T001,100,settled"
-              className="min-h-50 font-mono text-xs"
-              value={settlementRaw}
-              onChange={(e) => setSettlementRaw(e.target.value)}
-            />
+            {isDragging ? (
+              <div
+                className={cn(
+                  "flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed min-h-48 transition-colors",
+                  dragFileType !== "json"
+                    ? "border-primary/60 bg-primary/5"
+                    : "border-destructive/60 bg-destructive/5"
+                )}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={handleZoneDrop(setSettlementRaw, "csv")}
+              >
+                <span
+                  className={cn(
+                    "text-3xl font-bold",
+                    dragFileType !== "json" ? "text-primary" : "text-destructive"
+                  )}
+                >
+                  .CSV
+                </span>
+                <span
+                  className={cn(
+                    "text-sm",
+                    dragFileType !== "json"
+                      ? "text-primary/70"
+                      : "text-destructive/70"
+                  )}
+                >
+                  {dragFileType === "json"
+                    ? "Expects .csv file"
+                    : "Drop file here"}
+                </span>
+              </div>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => settlementFileRef.current?.click()}
+                >
+                  Upload CSV file
+                </Button>
+                <div className="text-xs text-muted-foreground text-center">or paste below</div>
+                <Textarea
+                  placeholder="trade_id,amount,status&#10;T001,100,settled"
+                  className="min-h-28 max-h-80 font-mono text-xs"
+                  value={settlementRaw}
+                  onChange={(e) => setSettlementRaw(e.target.value)}
+                />
+              </>
+            )}
           </CardContent>
         </Card>
       </div>

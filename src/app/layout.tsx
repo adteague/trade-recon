@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono } from "next/font/google";
+import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
 const ibmPlexMono = IBM_Plex_Mono({
@@ -23,7 +24,10 @@ export default function RootLayout({
       lang="en"
       className={`${ibmPlexMono.variable} ${ibmPlexMono.className} dark h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {children}
+        <Toaster />
+      </body>
     </html>
   );
 }
